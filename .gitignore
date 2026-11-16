@@ -2,3 +2,4 @@ __pycache__/
 *.log
 # Solo para abrir index.html con doble clic; en la web se usa data/bouco.json
 data/bouco-data.js
+.claude/
