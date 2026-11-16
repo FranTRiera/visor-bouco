@@ -2,12 +2,55 @@ name: diag
 on: workflow_dispatch
 jobs:
   diag:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
-      - run: |
+      - name: info
+        run: |
           curl -s https://ifconfig.me; echo
-          for ua in "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36" "bouco-visor/1.0"; do
-            curl -s -o /dev/null -m 30 -A "$ua" -w "UA=$ua code=%{http_code} t=%{time_total} connect=%{time_connect}\n" https://sede.uco.es/bouco/ || echo "fail $?"
-          done
-          curl -s -o /dev/null -m 30 -w "uco.es code=%{http_code}\n" https://www.uco.es/ || echo "uco.es fail $?"
-          curl -s -o /dev/null -m 30 -w "sede http code=%{http_code}\n" http://sede.uco.es/ || echo "sede http fail $?"
+          python -c "import ssl,sys;print(sys.version, ssl.OPENSSL_VERSION)"
+          nslookup sede.uco.es || true
+      - name: curl redirect target
+        run: |
+          U="https://sede.uco.es/bouco/index.htm?codOrganismo=BOUCO"
+          curl -s -o out.html -m 40 -w "target code=%{http_code} size=%{size_download} t=%{time_total} ttfb=%{time_starttransfer}\n" "$U" || echo "fail $?"; ls -l out.html || true
+          curl -s -o /dev/null -m 40 -L -c jar -b jar -w "L code=%{http_code} size=%{size_download} t=%{time_total} ttfb=%{time_starttransfer}\n" https://sede.uco.es/bouco/ || echo "fail $?"
+          curl -s -o /dev/null -m 40 -r 0-500 -w "range code=%{http_code} size=%{size_download} t=%{time_total}\n" "$U" || echo "fail $?"
+          curl -s -o /dev/null -m 40 --compressed -w "gzip code=%{http_code} size=%{size_download} t=%{time_total}\n" "$U" || echo "fail $?"
+          curl -s -o /dev/null -m 40 -w "uco code=%{http_code} size=%{size_download} t=%{time_total}\n" https://www.uco.es/ || echo "fail $?"
+      - name: curl verbose
+        run: curl -sv -o /dev/null -m 30 "https://sede.uco.es/bouco/index.htm?codOrganismo=BOUCO" 2>&1 | tail -40 || true
+      - name: python http.client
+        run: |
+          python - <<'PY'
+          import time, http.client
+          t = time.time(); n = 0
+          try:
+              c = http.client.HTTPSConnection("sede.uco.es", timeout=30)
+              c.request("GET", "/bouco/index.htm?codOrganismo=BOUCO", headers={"User-Agent": "bouco-visor/1.0"})
+              r = c.getresponse(); print("hdr", r.status, r.getheaders(), round(time.time()-t, 2))
+              while True:
+                  b = r.read(4096)
+                  if not b:
+                      break
+                  n += len(b)
+              print("body", n, round(time.time()-t, 2))
+          except Exception as e:
+              print("ERR", repr(e), "bytes", n, round(time.time()-t, 2))
+          PY
+      - name: mtu test (linux)
+        if: runner.os == 'Linux'
+        run: |
+          ip link; ip route
+          ping -c2 -W3 -M do -s 1472 sede.uco.es || echo "ping df 1500 fail"
+          ping -c2 -W3 -M do -s 1372 sede.uco.es || echo "ping df 1400 fail"
+          IF=$(ip route | awk '/default/{print $5; exit}')
+          sudo ip link set "$IF" mtu 1400
+          curl -s -o /dev/null -m 40 -w "mtu1400 code=%{http_code} size=%{size_download} t=%{time_total}\n" "https://sede.uco.es/bouco/index.htm?codOrganismo=BOUCO" || echo "fail $?"
