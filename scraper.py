@@ -30,7 +30,12 @@ DATA_DIR = Path(__file__).parent / "data"
 JSON_PATH = DATA_DIR / "bouco.json"
 JS_PATH = DATA_DIR / "bouco-data.js"
 REQUEST_DELAY_S = 0.3
-MAX_RETRIES = 3
+# La sede a veces se queda colgada varios minutos (acepta la conexión pero no responde):
+# timeout corto y reintentos con espera creciente (5, 10, 20, 40, 60, 60... s) para
+# aguantar unos 10 min de cuelgue antes de rendirse.
+REQUEST_TIMEOUT_S = 30
+MAX_RETRIES = 9
+MAX_BACKOFF_S = 60
 WORKERS = 4
 
 ROW_RE = re.compile(r'rich-table-row')
@@ -61,13 +66,14 @@ class Session:
     def _open(self, url, data):
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                with self.opener.open(url, data, timeout=60) as resp:
+                with self.opener.open(url, data, timeout=REQUEST_TIMEOUT_S) as resp:
                     return resp.read().decode("utf-8", errors="replace")
             except OSError as exc:
                 if attempt == MAX_RETRIES:
                     raise
-                print(f"  reintento {attempt} tras error: {exc}", file=sys.stderr)
-                time.sleep(2 * attempt)
+                wait = min(MAX_BACKOFF_S, 5 * 2 ** (attempt - 1))
+                print(f"  reintento {attempt} en {wait} s tras error: {exc}", file=sys.stderr)
+                time.sleep(wait)
 
     def post(self, fields):
         time.sleep(REQUEST_DELAY_S)
