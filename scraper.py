@@ -30,8 +30,16 @@ DATA_DIR = Path(__file__).parent / "data"
 JSON_PATH = DATA_DIR / "bouco.json"
 JS_PATH = DATA_DIR / "bouco-data.js"
 REQUEST_DELAY_S = 0.3
+REQUEST_TIMEOUT_S = 60
 MAX_RETRIES = 3
 WORKERS = 4
+# La aplicación del BOUCO (Tomcat tras el Apache de la sede) se cuelga a ratos durante
+# varios minutos: Apache sigue contestando la redirección de /bouco/, pero las páginas
+# de la aplicación no responden, ni desde la UCO ni desde GitHub Actions. Antes de
+# empezar se espera a que vuelva, hasta este máximo.
+SERVER_WAIT_S = 15 * 60
+SERVER_PROBE_TIMEOUT_S = 20
+SERVER_PROBE_INTERVAL_S = 60
 
 ROW_RE = re.compile(r'rich-table-row')
 NUM_RE = re.compile(r'N\.º\s*(\d{4})/(\d+)')
@@ -61,7 +69,7 @@ class Session:
     def _open(self, url, data):
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                with self.opener.open(url, data, timeout=60) as resp:
+                with self.opener.open(url, data, timeout=REQUEST_TIMEOUT_S) as resp:
                     return resp.read().decode("utf-8", errors="replace")
             except OSError as exc:
                 if attempt == MAX_RETRIES:
@@ -91,6 +99,23 @@ class Session:
             "idBandejaAnuncios": "idBandejaAnuncios", "autoScroll": "",
             "ajaxSingle": "idBandejaAnuncios:j_id88:ds", "idBandejaAnuncios:j_id88:ds": str(page),
         })
+
+
+def wait_for_server():
+    """Espera a que la aplicación del BOUCO responda (ver SERVER_WAIT_S)."""
+    deadline = time.monotonic() + SERVER_WAIT_S
+    while True:
+        try:
+            with urllib.request.urlopen(BASE, timeout=SERVER_PROBE_TIMEOUT_S) as resp:
+                resp.read()
+            return
+        except OSError as exc:
+            if time.monotonic() + SERVER_PROBE_INTERVAL_S > deadline:
+                sys.exit(f"El BOUCO no responde tras {SERVER_WAIT_S // 60} min ({exc}). "
+                         "Inténtalo más tarde.")
+            print(f"El BOUCO no responde ({exc}); nuevo intento en {SERVER_PROBE_INTERVAL_S} s",
+                  file=sys.stderr, flush=True)
+            time.sleep(SERVER_PROBE_INTERVAL_S)
 
 
 def parse_rows(fragment):
@@ -217,6 +242,7 @@ def main():
         return
     full = args.full or not ads
     known = set(ads)
+    wait_for_server()
     filters = discover_filters()
     print(f"{len(filters)} secciones del BOUCO. Modo {'completo' if full else 'incremental'}.")
 
