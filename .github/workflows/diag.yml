@@ -4,14 +4,13 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: |
           curl -s https://ifconfig.me; echo
-          getent ahosts sede.uco.es || true
-          for u in https://sede.uco.es/bouco/ "https://sede.uco.es/bouco/index.htm?codOrganismo=BOUCO" https://sede.uco.es/bouco/bandejaAnuncios.htm https://sede.uco.es/ ; do
-            curl -s -o /dev/null -m 25 "$u" -w "$u code=%{http_code} t=%{time_total} connect=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer} v=%{http_version}\n" || echo "fail $? $u"
-          done
-          curl -sv -m 25 -o /dev/null "https://sede.uco.es/bouco/index.htm?codOrganismo=BOUCO" 2>&1 | tail -30 || true
-          for i in 1 2 3 4 5 6; do
-            curl -s -o /dev/null -m 25 "https://sede.uco.es/bouco/index.htm?codOrganismo=BOUCO" -w "$(date +%T) code=%{http_code} t=%{time_total}\n" || echo "$(date +%T) fail $?"
-            sleep 20
-          done
+          python -u diag_hops.py https://sede.uco.es/bouco/
+          curl -s -o /dev/null -m 20 http://sede.uco.es/bouco/bandejaAnuncios.htm -w "http bandeja code=%{http_code} t=%{time_total}\n" || echo "http bandeja fail $?"
+          curl -s -o /dev/null -m 20 https://sede.uco.es/bouco/bandejaAnuncios.htm -w "https bandeja code=%{http_code} t=%{time_total}\n" || echo "https bandeja fail $?"
+      - run: timeout 900 python -u scraper.py || echo "scraper rc=$?"
