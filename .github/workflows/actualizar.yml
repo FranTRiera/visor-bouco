@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: actualizar-bouco
+  group: actualizar-bouco-fix-agente-a
   cancel-in-progress: false
 
 jobs:
