@@ -2,8 +2,8 @@ name: Actualizar BOUCO
 
 on:
   schedule:
-    # Lunes a viernes a las 8:30, 13:30 y 19:30 (hora peninsular, UTC+1 en invierno)
-    - cron: "30 7,12,18 * * 1-5"
+    # Cada 8 horas, todos los días (00:15, 08:15 y 16:15 UTC; +1 h en invierno peninsular)
+    - cron: "15 */8 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,23 +18,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Siempre la punta de la rama (no el commit que lanzó el run): así un
+      # "Re-run" de una ejecución antigua no parte de datos desfasados.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Descargar anuncios nuevos
-        run: python scraper.py
-
-      - name: Guardar cambios
+      - name: Descargar y guardar anuncios nuevos
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/bouco.json
-          if git diff --cached --quiet; then
-            echo "Sin cambios."
-          else
+          # Si alguien sube algo mientras tanto, el push se rechaza: se vuelve a
+          # partir de la rama remota y se repite (el scraper es incremental).
+          for intento in 1 2 3; do
+            git fetch origin "$GITHUB_REF_NAME"
+            git reset --hard "origin/$GITHUB_REF_NAME"
+            python scraper.py
+            git add data/bouco.json
+            if git diff --cached --quiet; then
+              echo "Sin cambios."
+              exit 0
+            fi
             git commit -m "datos: actualización automática del BOUCO"
-            git push
-          fi
+            if git push origin "HEAD:$GITHUB_REF_NAME"; then
+              exit 0
+            fi
+            echo "Push rechazado (intento $intento); reintentando..."
+            sleep 10
+          done
+          exit 1
