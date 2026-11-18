@@ -195,16 +195,23 @@ def madrid_now():
 def to_json(payload):
     """Un anuncio por línea, para que git guarde solo los cambios."""
     rows = ",\n".join(json.dumps(a, ensure_ascii=False) for a in payload["anuncios"])
-    return f'{{"actualizado": "{payload["actualizado"]}", "anuncios": [\n{rows}\n]}}\n'
+    return (f'{{"actualizado": "{payload["actualizado"]}", "comprobado": "{payload["comprobado"]}", '
+            f'"anuncios": [\n{rows}\n]}}\n')
 
 
 def save(ads):
+    """Guarda siempre: `comprobado` es la última consulta al BOUCO y
+    `actualizado` la última vez que cambiaron los anuncios."""
     DATA_DIR.mkdir(exist_ok=True)
     ordered = canonicalize_areas(sorted(ads.values(), key=lambda a: (a["fecha"], a["id"]), reverse=True))
-    if JSON_PATH.exists() and json.loads(JSON_PATH.read_text(encoding="utf-8"))["anuncios"] == ordered:
+    now = madrid_now()
+    previous = json.loads(JSON_PATH.read_text(encoding="utf-8")) if JSON_PATH.exists() else None
+    if previous and previous["anuncios"] == ordered:
         print("Sin anuncios nuevos.")
-        return
-    text = to_json({"actualizado": madrid_now(), "anuncios": ordered})
+        updated = previous["actualizado"]
+    else:
+        updated = now
+    text = to_json({"actualizado": updated, "comprobado": now, "anuncios": ordered})
     JSON_PATH.write_text(text, encoding="utf-8")
     JS_PATH.write_text("window.BOUCO_DATA = " + text.rstrip() + ";\n", encoding="utf-8")
     print(f"Guardados {len(ordered)} anuncios en {JSON_PATH}")

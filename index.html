@@ -141,7 +141,7 @@
     temaKey: a.tema ? `${a.tema} › ${a.subtema || 'General'}` : 'Sin clasificar',
     hay: norm(`${a.id} ${a.titulo} ${a.descripcion} ${a.departamento} ${a.areas.join(' ')}`),
   }));
-  $('updated').textContent = `${ads.length.toLocaleString('es')} anuncios · datos del ${data.actualizado}`;
+  $('updated').textContent = `${ads.length.toLocaleString('es')} anuncios · comprobado ${data.comprobado || data.actualizado} · último cambio ${data.actualizado}`;
 
   const state = { q: '', conv: new Set(), area: '', fase: '', tema: '', dept: '', desde: '', hasta: '', year: '', page: 1 };
 
